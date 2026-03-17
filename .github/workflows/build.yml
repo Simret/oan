@@ -1,0 +1,36 @@
+name: Build OAN with Docker Compose
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create docker network
+        run: docker network create oannetwork || true
+
+      - name: Start Redis Stack
+        run: |
+          docker run -d --name redis-stack --network oannetwork \
+          -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
+
+      - name: Start Marqo
+        run: |
+          docker run -d --name marqo -p 8882:8882 \
+          -e MARQO_MAX_CONCURRENT_SEARCH=50 \
+          -e VESPA_POOL_SIZE=50 \
+          marqoai/marqo:latest
+
+      - name: Build and start application
+        run: |
+          docker compose up --build --detach
+
+      - name: Show running containers
+        run: docker ps
