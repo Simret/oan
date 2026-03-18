@@ -1,4 +1,4 @@
-name: Smart OAN Docker Build
+name: Build OAN with Docker Compose
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔹 Create .env file from secrets & variables
+      # 🔹 Create .env file
       - name: Create .env file
         run: |
           cat <<EOF > .env
@@ -48,32 +48,53 @@ jobs:
       - name: Create Docker network
         run: docker network create oannetwork || true
 
-      # 🔹 Smart build & container update
-      - name: Build and start containers
+      # 🔹 Clean old containers
+      - name: Remove old containers
         run: |
-          # Remove old containers if they exist
-          for container in redis-stack marqo oan_app; do
+          for container in redis-stack marqo oan_app oan_postgres oan_nominatim; do
             if [ "$(docker ps -aq -f name=$container)" ]; then
               echo "Removing existing container $container"
               docker rm -f $container
             fi
           done
+          # CosData container: remove if exists but ignore health later
+          docker rm -f oan_cosdata || true
 
-          # Build only changed images
-          docker compose build
+      # 🔹 Build all images
+      - name: Build Docker images
+        run: docker compose build
 
-          # Start all containers, recreating only updated ones
-          docker compose up --detach
-
-      # 🔹 Optional: Wait for CosData to be healthy
-      - name: Wait for CosData
+      # 🔹 Start required containers
+      - name: Start required containers
         run: |
-          for i in {1..30}; do
-            STATUS=$(docker inspect --format='{{.State.Health.Status}}' oan_cosdata || echo "missing")
-            echo "CosData status: $STATUS"
-            if [ "$STATUS" = "healthy" ]; then break; fi
-            sleep 5
+          docker compose up -d redis-stack marqo oan_app oan_postgres oan_nominatim
+
+      # 🔹 Wait for required containers to be healthy
+      - name: Wait for required containers
+        run: |
+          REQUIRED_CONTAINERS=("redis-stack" "marqo" "oan_app" "oan_postgres" "oan_nominatim")
+          for container in "${REQUIRED_CONTAINERS[@]}"; do
+            for i in {1..30}; do
+              STATUS=$(docker inspect --format='{{.State.Health.Status}}' $container || echo "missing")
+              echo "$container status: $STATUS"
+              if [ "$STATUS" = "healthy" ]; then break; fi
+              sleep 5
+            done
+            # Fail if still unhealthy
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' $container || echo "missing")
+            if [ "$STATUS" != "healthy" ]; then
+              echo "$container is unhealthy, failing build"
+              exit 1
+            fi
           done
+
+      # 🔹 Start CosData container (health ignored)
+      - name: Start CosData
+        run: docker compose up -d oan_cosdata
+
+      # 🔹 Start app container (full stack)
+      - name: Start full stack app
+        run: docker compose up -d oan_app
 
       - name: Show running containers
         run: docker ps
