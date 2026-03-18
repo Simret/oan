@@ -23,14 +23,45 @@ jobs:
 
       - name: Start Marqo
         run: |
-          docker run -d --name marqo -p 8882:8882 \
+          docker run -d --name marqo --network oannetwork -p 8882:8882 \
           -e MARQO_MAX_CONCURRENT_SEARCH=50 \
           -e VESPA_POOL_SIZE=50 \
           marqoai/marqo:latest
 
-      - name: Build and start application
+
+      - name: Create .env file
         run: |
-          docker compose up --build --detach
+          cat <<EOF > .env
+          LLM_PROVIDER=${{ vars.LLM_PROVIDER }}
+          LLM_MODEL_NAME=${{ vars.LLM_MODEL_NAME }}
+          INFERENCE_ENDPOINT_URL=${{ vars.INFERENCE_ENDPOINT_URL }}
+          INFERENCE_API_KEY=${{ secrets.INFERENCE_API_KEY }}
+          MAPBOX_API_TOKEN=${{ secrets.MAPBOX_API_TOKEN }}
+          MARQO_ENDPOINT_URL=${{ vars.MARQO_ENDPOINT_URL }}
+          MARQO_INDEX_NAME=${{ vars.MARQO_INDEX_NAME }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          OPENWEATHERMAP_API_KEY=${{ secrets.OPENWEATHERMAP_API_KEY }}
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          DB_POOL_SIZE=${{ vars.DB_POOL_SIZE }}
+          DB_MAX_OVERFLOW=${{ vars.DB_MAX_OVERFLOW }}
+          SCRAPER_ENABLED=${{ vars.SCRAPER_ENABLED }}
+          azure_foundary_api_key=${{ secrets.azure_foundary_api_key }}
+          azure_foundary_region=${{ vars.azure_foundary_region }}
+          ENABLE_MODERATION=${{ vars.ENABLE_MODERATION }}
+          RAG_PROVIDER=${{ vars.RAG_PROVIDER }}
+          COSDATA_ENDPOINT_URL=${{ vars.COSDATA_ENDPOINT_URL }}
+          COSDATA_USERNAME=${{ secrets.COSDATA_USERNAME }}
+          COSDATA_PASSWORD=${{ secrets.COSDATA_PASSWORD }}
+          COSDATA_COLLECTION_NAME=${{ vars.COSDATA_COLLECTION_NAME }}
+          EMBEDDING_MODEL_NAME=${{ vars.EMBEDDING_MODEL_NAME }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ vars.AWS_REGION }}
+          EOF
+
+      - name: Build and start application
+        run: docker compose up --build --detach
 
       - name: Show running containers
         run: docker ps
