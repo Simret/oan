@@ -1,4 +1,4 @@
-name: Build OAN with Docker Compose
+name: Smart OAN Docker Build
 
 on:
   push:
@@ -8,33 +8,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔹 Clean any old containers that might block ports
-      - name: Clean previous containers
-        run: |
-          docker rm -f redis-stack || true
-          docker rm -f marqo || true
-
-      - name: Create docker network
-        run: docker network create oannetwork || true
-
-      - name: Start Redis Stack
-        run: |
-          docker run -d --name redis-stack --network oannetwork \
-          redis/redis-stack:latest
-
-      - name: Start Marqo
-        run: |
-          docker run -d --name marqo --network oannetwork \
-          -e MARQO_MAX_CONCURRENT_SEARCH=50 \
-          -e VESPA_POOL_SIZE=50 \
-          marqoai/marqo:latest
-
-      # 🔹 Create .env file with secrets and variables
+      # 🔹 Create .env file from secrets & variables
       - name: Create .env file
         run: |
           cat <<EOF > .env
@@ -66,8 +44,36 @@ jobs:
           AWS_REGION=${{ vars.AWS_REGION }}
           EOF
 
-      - name: Build and start application
-        run: docker compose up --build --detach
+      # 🔹 Create network
+      - name: Create Docker network
+        run: docker network create oannetwork || true
+
+      # 🔹 Smart build & container update
+      - name: Build and start containers
+        run: |
+          # Remove old containers if they exist
+          for container in redis-stack marqo oan_app; do
+            if [ "$(docker ps -aq -f name=$container)" ]; then
+              echo "Removing existing container $container"
+              docker rm -f $container
+            fi
+          done
+
+          # Build only changed images
+          docker compose build
+
+          # Start all containers, recreating only updated ones
+          docker compose up --detach
+
+      # 🔹 Optional: Wait for CosData to be healthy
+      - name: Wait for CosData
+        run: |
+          for i in {1..30}; do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' oan_cosdata || echo "missing")
+            echo "CosData status: $STATUS"
+            if [ "$STATUS" = "healthy" ]; then break; fi
+            sleep 5
+          done
 
       - name: Show running containers
         run: docker ps
