@@ -13,22 +13,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 🔹 Clean any old containers that might block ports
+      - name: Clean previous containers
+        run: |
+          docker rm -f redis-stack || true
+          docker rm -f marqo || true
+
       - name: Create docker network
         run: docker network create oannetwork || true
 
       - name: Start Redis Stack
         run: |
           docker run -d --name redis-stack --network oannetwork \
-          -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
+          redis/redis-stack:latest
 
       - name: Start Marqo
         run: |
-          docker run -d --name marqo --network oannetwork -p 8882:8882 \
+          docker run -d --name marqo --network oannetwork \
           -e MARQO_MAX_CONCURRENT_SEARCH=50 \
           -e VESPA_POOL_SIZE=50 \
           marqoai/marqo:latest
 
-
+      # 🔹 Create .env file with secrets and variables
       - name: Create .env file
         run: |
           cat <<EOF > .env
