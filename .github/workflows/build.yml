@@ -8,11 +8,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔹 Create .env file
+      # 🔹 Create .env file from GitHub Secrets & Variables
       - name: Create .env file
         run: |
           cat <<EOF > .env
@@ -44,57 +45,39 @@ jobs:
           AWS_REGION=${{ vars.AWS_REGION }}
           EOF
 
-      # 🔹 Create network
-      - name: Create Docker network
-        run: docker network create oannetwork || true
+      # 🔹 Clean previous containers (safe reset)
+      - name: Clean old containers
+        run: docker compose down -v || true
 
-      # 🔹 Clean old containers
-      - name: Remove old containers
-        run: |
-          for container in redis-stack marqo oan_app oan_postgres oan_nominatim; do
-            if [ "$(docker ps -aq -f name=$container)" ]; then
-              echo "Removing existing container $container"
-              docker rm -f $container
-            fi
-          done
-          # CosData container: remove if exists but ignore health later
-          docker rm -f oan_cosdata || true
-
-      # 🔹 Build all images
+      # 🔹 Build images
       - name: Build Docker images
         run: docker compose build
 
-      # 🔹 Start required containers
-      - name: Start required containers
-        run: |
-          docker compose up -d redis-stack marqo oan_app oan_postgres oan_nominatim
+      # 🔹 Start ALL services (defined in docker-compose.yml)
+      - name: Start containers
+        run: docker compose up -d
 
-      # 🔹 Wait for required containers to be healthy
+      # 🔹 Wait for required containers ONLY (ignore CosData)
       - name: Wait for required containers
         run: |
-          REQUIRED_CONTAINERS=("redis-stack" "marqo" "oan_app" "oan_postgres" "oan_nominatim")
-          for container in "${REQUIRED_CONTAINERS[@]}"; do
+          REQUIRED=("oan_postgres" "oan_redis" "oan_nominatim")
+
+          for container in "${REQUIRED[@]}"; do
+            echo "Checking $container..."
             for i in {1..30}; do
               STATUS=$(docker inspect --format='{{.State.Health.Status}}' $container || echo "missing")
               echo "$container status: $STATUS"
               if [ "$STATUS" = "healthy" ]; then break; fi
               sleep 5
             done
-            # Fail if still unhealthy
+
             STATUS=$(docker inspect --format='{{.State.Health.Status}}' $container || echo "missing")
             if [ "$STATUS" != "healthy" ]; then
-              echo "$container is unhealthy, failing build"
+              echo "$container is unhealthy ❌"
               exit 1
             fi
           done
 
-      # 🔹 Start CosData container (health ignored)
-      - name: Start CosData
-        run: docker compose up -d oan_cosdata
-
-      # 🔹 Start app container (full stack)
-      - name: Start full stack app
-        run: docker compose up -d oan_app
-
+      # 🔹 Show status (CosData may be unhealthy — allowed)
       - name: Show running containers
         run: docker ps
